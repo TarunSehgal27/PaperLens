@@ -19,7 +19,6 @@ def preprocess_text(text):
 
 # doc ingestion
 def load_documents(file):
-    # loader = PyMuPDFLoader("The Deepfake Dilemma.pdf")
     loader = PyMuPDFLoader(file)
     documents = loader.load()
 
@@ -83,7 +82,7 @@ def create_prompt(retrieved_docs, query):
         RESPONSE FORMAT:
         Answer: <direct answer>
         Source: <bullet points with inline citations>
-        Confidence: High | Medium | Low
+        Confidence: <direct answer> High | Medium | Low
 
         AUTO-DETECT MODE:
         - Question asked       → Q&A mode
@@ -111,13 +110,18 @@ def create_prompt(retrieved_docs, query):
 def get_result(final_prompt):
     llm = HuggingFaceEndpoint(
         repo_id = "Qwen/Qwen3-Coder-Next",
-        task = "text-generation"
+        task = "text-generation",
+        streaming=True
     )
 
     model = ChatHuggingFace(llm=llm)
-    answer = model.invoke(final_prompt)
+    answer = ''
+    for word in model.stream(final_prompt):
+        print(word.content, end='', flush=True)
+        answer += word.content
+    print()
 
-    return answer.content
+    return answer
 
 def ask(query):
     retrieved_docs = retrieve(query)
@@ -135,8 +139,6 @@ if __name__ == "__main__":
         if question == 'exit':
             break
         result = ask(question)
-        print(result)
-
 
 
     
