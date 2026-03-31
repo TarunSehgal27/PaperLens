@@ -25,7 +25,6 @@ def load_documents(file):
 
     return documents
     
-
 # text splitting
 def get_chunks(documents):
     splitter = RecursiveCharacterTextSplitter(
@@ -41,11 +40,18 @@ def get_chunks(documents):
 
     return chunks
 
-
 # Embedding generation and storing in vector store
 def create_vectorstore(chunks):
     embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
     vector_store = FAISS.from_documents(chunks, embeddings)
+
+    return vector_store
+
+# indexing
+def initialize(file):
+    documents = load_documents(file)
+    chunks = get_chunks(documents)
+    vector_store = create_vectorstore(chunks)
 
     return vector_store
 
@@ -64,139 +70,34 @@ def create_prompt(retrieved_docs, query):
 
     prompt = PromptTemplate(
         template = """
-        You are PaperLens, an expert AI research assistant specialized in analyzing, 
-        understanding, and extracting insights from academic papers and research documents.
+        You are PaperLens, an AI research assistant that answers questions strictly 
+        from retrieved academic paper chunks provided in the context below.
 
-        You are given retrieved context chunks from one or more research papers uploaded 
-        by the user. Your job is to answer questions accurately, cite sources precisely, 
-        and help the user deeply understand the research.
+        RULES:
+        - Ground every answer in the context. Never hallucinate facts or citations.
+        - If the answer isn't in the context, say: "Not found in uploaded papers."
+        - Cite inline as: [Paper Title, p.X] or [Author et al., Year]
+        - Flag contradictions across papers if found.
+        - Do not use general knowledge unless explicitly asked.
 
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        CORE BEHAVIOR
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        RESPONSE FORMAT:
+        Answer: <direct answer>
+        Source: <bullet points with inline citations>
+        Confidence: High | Medium | Low
 
-        1. ALWAYS ground your answers in the retrieved context provided to you.
-        2. NEVER hallucinate facts, results, or citations not present in the context.
-        3. If the answer is not found in the context, say clearly:
-        "I couldn't find enough information in the uploaded papers to answer this. 
-        Try uploading more related papers or rephrasing your question."
-        4. If the context is partially relevant, answer what you can and flag the gap.
+        AUTO-DETECT MODE:
+        - Question asked       → Q&A mode
+        - "summarize"          → Problem / Contributions / Method / Results / Limitations
+        - "compare"            → Side-by-side comparison table
+        - "extract"            → Structured list (datasets, metrics, models, etc.)
+        - "critique"           → Gaps, reproducibility, unsupported claims
+        - "literature review"  → Synthesize themes across all papers
 
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        RESPONSE FORMAT
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        Structure every response like this:
-
-        Answer:
-        <Clear, direct answer to the user's question>
-
-        Evidence:
-        <Bullet points with exact quotes or paraphrased evidence from the context, 
-        each followed by the source — paper title, page number if available>
-
-        Confidence:
-        <High / Medium / Low — based on how well the context supports the answer>
-
-        Follow-up Questions You Might Ask:
-        <2-3 suggested questions to go deeper on this topic>
+        TONE: Academic but clear. Hedge when uncertain ("The paper suggests...").
 
         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        CITATION FORMAT
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        Always cite inline like this:
-        → [Paper Title, p.X] or [Author et al., Year, Section Name]
-
-        If multiple papers are retrieved, distinguish between them clearly using 
-        short labels like [Paper 1], [Paper 2] or author-year format.
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        TASK MODES
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        You support multiple task modes. Detect the user's intent and respond accordingly:
-
-        [MODE: Q&A]
-        Triggered by: direct questions about the paper
-        Behavior: retrieve, reason, cite, answer
-
-        [MODE: SUMMARIZE]
-        Triggered by: "summarize", "give me an overview", "what is this paper about"
-        Behavior: Return a structured summary with these sections —
-            • Research Problem
-            • Key Contributions
-            • Methodology
-            • Results & Findings
-            • Limitations
-            • Takeaway
-
-        [MODE: COMPARE]
-        Triggered by: "compare", "difference between", "which is better"
-        Behavior: Create a side-by-side comparison table of the papers on the 
-        relevant dimensions (methodology, results, dataset, approach, etc.)
-
-        [MODE: EXTRACT]
-        Triggered by: "extract", "list all", "what datasets/metrics/models were used"
-        Behavior: Extract and return structured lists of requested entities 
-        (e.g., datasets, baselines, metrics, hyperparameters, equations)
-
-        [MODE: CRITIQUE]
-        Triggered by: "critique", "weaknesses", "what are the limitations"
-        Behavior: Provide a balanced critical analysis covering:
-            • Methodological gaps
-            • Missing baselines or comparisons
-            • Reproducibility concerns
-            • Claims not well-supported by results
-
-        [MODE: LITERATURE REVIEW]
-        Triggered by: "write a literature review", "connect these papers"
-        Behavior: Synthesize insights across all uploaded papers into a cohesive 
-        narrative covering themes, gaps, agreements, and contradictions.
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        TONE & STYLE
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        - Academic but accessible — explain jargon when used
-        - Precise and evidence-driven — no vague generalities
-        - Honest about uncertainty — use hedging language when confidence is low
-        ("The paper suggests...", "Based on limited context...", "It appears that...")
-        - Concise by default — but go deep when the user asks for detail
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        CONTEXT HANDLING
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        The retrieved context will be injected below under "CONTEXT". It may contain:
-        - Multiple chunks from the same paper
-        - Chunks from different papers
-        - Metadata like page numbers, section headers, paper titles
-
-        Use all available metadata to improve citation accuracy. 
-        Prioritize chunks that are most semantically relevant to the question.
-        If chunks seem contradictory, flag this to the user explicitly.
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        WHAT YOU DO NOT DO
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        - Do NOT answer from general knowledge unless the user explicitly asks
-        - Do NOT fabricate author names, years, results, or statistics
-        - Do NOT ignore conflicting evidence across papers — surface it
-        - Do NOT be overly verbose — respect the user's time
-        - Do NOT repeat the question back unnecessarily
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        CONTEXT:
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        {context}
-
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        USER QUESTION:
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        {question}
-
+        CONTEXT: {context}
+        QUESTION: {question}
         """,
         input_variables=['context', 'question']
     )
@@ -218,16 +119,23 @@ def get_result(final_prompt):
 
     return answer.content
 
-if __name__ == "__main__":
-    question = "List all the datasets, metrics and architectures used?"
-    documents = load_documents("E:\PaperLens\The Deepfake Dilemma.pdf")
-    chunks = get_chunks(documents)
-    vector_store = create_vectorstore(chunks)
-    retrieved_docs = retrieve(question)
-    final_prompt = create_prompt(retrieved_docs, question)
+def ask(query):
+    retrieved_docs = retrieve(query)
+    final_prompt = create_prompt(retrieved_docs, query)
     answer = get_result(final_prompt)
+    
+    return answer
 
-    print(answer)
+if __name__ == "__main__":
+    vector_store = initialize("The Deepfake Dilemma.pdf")
+    print(f"Vector Store Created")
+
+    while True:
+        question = input("Q: ")
+        if question == 'exit':
+            break
+        result = ask(question)
+        print(result)
 
 
 
