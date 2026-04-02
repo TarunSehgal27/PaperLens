@@ -5,6 +5,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
 from dotenv import load_dotenv
 import re
+import os
 
 load_dotenv()
 
@@ -27,8 +28,8 @@ def load_documents(file):
 # text splitting
 def get_chunks(documents):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 1000,
-        chunk_overlap = 221,
+        chunk_size = 1200,
+        chunk_overlap = 120,
         separators = ['\n\n', '\n', '.'],
         add_start_index = True
     )
@@ -40,9 +41,16 @@ def get_chunks(documents):
     return chunks
 
 # Embedding generation and storing in vector store
-def create_vectorstore(chunks):
-    embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+def create_vectorstore(chunks, save_path="faiss_index"):
+    embeddings = HuggingFaceEmbeddings(
+        model_name='sentence-transformers/all-MiniLM-L6-v2',
+        encode_kwargs={'batch_size':64}    
+    )
+    if os.path.exists(save_path):
+        print("Already exists")
+        vector_store = FAISS.load_local(save_path, embeddings, allow_dangerous_deserialization=True)
     vector_store = FAISS.from_documents(chunks, embeddings)
+    vector_store.save_local(save_path)
 
     return vector_store
 
@@ -55,7 +63,7 @@ def initialize(file):
     return vector_store
 
 # Retrieval
-def retrieve(query):
+def retrieve(query, vector_store):
     retriever = vector_store.as_retriever(
         search_type='mmr',
         search_kwargs={'k':2, 'lambda_mult': 0.6}
@@ -123,8 +131,8 @@ def get_result(final_prompt):
 
     return answer
 
-def ask(query):
-    retrieved_docs = retrieve(query)
+def ask(query, vector_store):
+    retrieved_docs = retrieve(query, vector_store)
     final_prompt = create_prompt(retrieved_docs, query)
     answer = get_result(final_prompt)
     
@@ -138,7 +146,7 @@ if __name__ == "__main__":
         question = input("Q: ")
         if question == 'exit':
             break
-        result = ask(question)
+        result = ask(question, vector_store)
 
 
     
