@@ -6,3 +6,5 @@ transformers
 huggingface_hub
 python-dotenv
 faiss-cpu
+pymupdf
+ragas
