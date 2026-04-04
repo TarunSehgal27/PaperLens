@@ -23,6 +23,11 @@ def preprocess_text(text):
 
 # doc ingestion
 def load_documents(file):
+    if "arxiv.org" in file:
+        if "/abs/" in file:
+            file = file.replace("/abs/", "/pdf/")
+        if not file.endswith(".pdf"):
+            file+= ".pdf"
     loader = PyMuPDFLoader(file)
     documents = loader.load()
 
@@ -182,7 +187,7 @@ def evaluate_rag(questions, ground_truths):
     return result
 
 if __name__ == "__main__":
-    vector_store = initialize("The Deepfake Dilemma.pdf")
+    vector_store = initialize("https://arxiv.org/abs/2210.03629")
     print(f"Vector Store Created")
 
     while True:
